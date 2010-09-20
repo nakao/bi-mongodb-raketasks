@@ -1,7 +1,7 @@
 # Rake tasks for GFF3 on MongoDB.
 #  
 # rake -T
-# rake gff3:inport
+# rake gff3:import
 # rake query:count
 # rake query:print_3
 # rake query:by_feature_mRNA
