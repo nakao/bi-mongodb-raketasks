@@ -1,0 +1,163 @@
+# Rake tasks for GFF3 on MongoDB.
+#  
+# rake -T
+# rake gff3:inport
+# rake query:count
+# rake query:print_3
+# rake query:by_feature_mRNA
+#
+
+class Object
+  def to_json
+    inspect
+  end
+end
+
+class Hash
+  def to_json
+    t = []
+    self.each do |kv|
+      t << "#{kv[0]}:#{kv[1].to_json}"
+    end
+    "{#{t.join(",")}}"
+  end
+end
+
+class GFF
+  def self.parse(file)
+    file.each do |line|
+      case line
+      when /^#/  # comment
+      when /^\w+\t/ # feature
+        puts self.feature_to_json(line)
+      when /^\n/
+      when /^>/     # sequence_defintion
+      when /^\w+\n/ # sequence
+        
+      end
+    end
+  end
+  
+  def self.feature_to_json(line)
+    f = line.chomp.split("\t")
+    hash = {}
+    f[8].split(';').each do |kv|
+      k,v = kv.split("=")
+      hash[k] = v
+    end
+    feature = {'_id' => f.object_id, 
+               'seqname' => f[0], 
+               'source' => f[1], 
+               'feature' => f[2], 
+               'start' => f[3].to_i, 'stop' => f[4].to_i, 'strand' => f[6], 
+               'score' => f[5].to_i, 'frame' => f[7],
+               'attributes' => hash}
+    ["feature=#{feature.to_json};",
+      'feature=db.features.save(feature);']
+  end
+end
+
+
+
+namespace :gff3 do
+
+  desc 'input.js'
+  task 'input.js' => [:to_mongo] do
+    sh 'rake -s gff3:to_mongo > input.js'
+  end
+  
+  desc 'volvox.gff3'
+  task 'volvox.gff3' do
+    sh 'curl -O http://cpansearch.perl.org/src/LDS/GBrowse-2.12/htdocs/tutorial/data_files/volvox.gff3'
+  end
+  
+  desc 'transfer volvox.gff3 into input.js'
+  task :to_mongo => ['volvox.gff3'] do
+    file =  File.open('volvox.gff3')
+    dropTable
+    GFF.parse(file)
+    ensureIndex
+  end
+
+  desc "import"
+  task :import => ['input.js'] do
+    sh 'mongo gff3 input.js'
+  end
+  
+  def dropTable
+    puts 'db.features.drop();'
+  end
+  
+  def ensureIndex
+    puts ['db.features.ensureIndex({seqname:1});',
+          'db.features.ensureIndex({feature:1});',
+          'db.features.ensureIndex({start:1});',
+          'db.features.ensureIndex({stop:1});',          
+          'db.features.ensureIndex({feature:1});',
+          'db.features.ensureIndex({"attributes.Name":1});']
+  end
+
+end
+
+
+namespace :query do
+
+  def run(q, db = 'gff3')
+    sh "echo '#{q}' | time mongo #{db}"
+  end
+  
+  desc "print 3 records"
+  task :print_3 do
+    q = "db.features.find().limit(3).forEach(printjson);"
+    run(q)
+  end
+
+  desc "How many records in the database, regardless of the limit ?"
+  task :count do 
+    q = "db.features.find().limit(20).count();"
+    run(q)
+  end    
+
+  desc "How many records will be printed ?"
+  task  :size do    
+    q = 'db.features.find().limit(20).size();'
+    run(q)
+  end
+
+  desc "Search for features having a attributes.Name with 'f06'"
+  task :by_attributes_name do
+    q = 'db.features.find({"attributes.Name":"f06"});'
+    run q
+  end
+  
+  desc 'Search for "CDS" features '
+  task :by_feature_CDS do
+    q = 'db.features.find({"feature":"CDS"}).forEach(printjson);'
+    run q
+  end
+
+  desc 'Search for "mRNA" features '
+  task :by_feature_mRNA do
+    q = 'db.features.find({"feature":"mRNA"}).forEach(printjson);'
+    run q
+  end
+  
+  desc 'Search for features located: start form 6000 to 12000'
+  task :start_6000_12000 do
+    q = 'db.features.find({"start":{$lt:12000,$gt:6000}}).forEach(printjson);'
+    run q
+  end
+
+  desc 'Search for features located: stop form 6000 to 12000'
+  task :stop_6000_12000 do
+    q = 'db.features.find({"stop":{$lt:12000,$gt:6000}}).forEach(printjson);'
+    run q
+  end
+
+  desc 'Search for features located form 6000 to 12000'
+  task :features_6000_12000 do
+    q = 'db.features.find({"start":{$lt:12000,$gt:6000}, "stop":{$lt:12000, $gt:6000}}).forEach(printjson);'
+    run q
+  end
+
+end
